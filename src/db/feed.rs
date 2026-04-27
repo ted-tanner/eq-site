@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use diesel::SelectableHelper;
+use diesel::dsl::count_star;
 use diesel::prelude::*;
 use uuid::Uuid;
 
@@ -60,6 +61,22 @@ impl FeedDao {
             .select(Post::as_select())
             .load::<Post>(&mut conn)
             .map_err(DaoError::from)
+    }
+
+    pub fn count_replies_by_post(
+        &self,
+        post_ids: &[String],
+    ) -> Result<HashMap<String, i64>, DaoError> {
+        if post_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut conn = self.db_pool.get()?;
+        let rows: Vec<(String, i64)> = replies::table
+            .filter(replies::post_id.eq_any(post_ids))
+            .group_by(replies::post_id)
+            .select((replies::post_id, count_star()))
+            .load(&mut conn)?;
+        Ok(rows.into_iter().collect())
     }
 
     pub fn get_thread(&self, post_id: &str) -> Result<(Post, Vec<Reply>), DaoError> {

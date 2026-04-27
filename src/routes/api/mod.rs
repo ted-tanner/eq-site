@@ -1,7 +1,7 @@
 use actix_web::web::*;
 
 use crate::env::CONF;
-use crate::handlers::{admin_handler, public_handler};
+use crate::handlers::public_handler;
 use crate::middleware;
 use crate::middleware::{CircuitBreaker, FairUse, RateLimiter};
 
@@ -125,20 +125,13 @@ pub fn configure(cfg: &mut ServiceConfig) {
     cfg.service(
         scope("/api")
             .service(
-                resource("/survey-responses")
-                    .route(
-                        get()
-                            .to(admin_handler::list_survey_responses)
-                            .wrap(limiters.read_fair_use.clone())
-                            .wrap(limiters.read_circuit_breaker.clone()),
-                    )
-                    .route(
-                        post()
-                            .to(public_handler::create_survey_response)
-                            .wrap(middleware::csrf_middleware::CsrfMiddleware)
-                            .wrap(limiters.survey_response_fair_use.clone())
-                            .wrap(limiters.create_circuit_breaker.clone()),
-                    ),
+                resource("/survey-responses").route(
+                    post()
+                        .to(public_handler::create_survey_response)
+                        .wrap(middleware::csrf_middleware::CsrfMiddleware)
+                        .wrap(limiters.survey_response_fair_use.clone())
+                        .wrap(limiters.create_circuit_breaker.clone()),
+                ),
             )
             .configure(|cfg| auth::configure(cfg, limiters.clone()))
             .configure(|cfg| feed::configure(cfg, limiters.clone()))

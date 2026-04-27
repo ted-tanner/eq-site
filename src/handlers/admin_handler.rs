@@ -13,8 +13,10 @@ pub struct PagingQuery {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct LimitQuery {
-    pub limit: Option<i64>,
+#[serde(deny_unknown_fields)]
+pub struct SurveyResponsePagingQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -159,15 +161,21 @@ pub async fn list_study_topics(
 pub async fn list_survey_responses(
     state: web::Data<AppState>,
     auth_user: AuthenticatedUser,
-    query: web::Query<LimitQuery>,
+    query: web::Query<SurveyResponsePagingQuery>,
 ) -> Result<HttpResponse, HandlerError> {
-    let Some(limit) = query.limit else {
-        return Err(HandlerError::bad_request("limit is required"));
-    };
-    let rows = AdminService::new(&state.db_pool)
-        .list_survey_responses(auth_user.user_id, limit)
+    let (rows, page, page_size, has_more) = AdminService::new(&state.db_pool)
+        .list_survey_responses(
+            auth_user.user_id,
+            query.page.unwrap_or(1),
+            query.page_size.unwrap_or(25),
+        )
         .await?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "responses": rows })))
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "responses": rows,
+        "page": page,
+        "page_size": page_size,
+        "has_more": has_more
+    })))
 }
 
 pub async fn create_study_topic(

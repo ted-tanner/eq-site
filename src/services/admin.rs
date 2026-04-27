@@ -116,15 +116,20 @@ impl AdminService {
     pub async fn list_survey_responses(
         &self,
         admin_id: String,
-        limit: i64,
-    ) -> Result<Vec<SurveyResponse>, ServiceError> {
+        page: i64,
+        page_size: i64,
+    ) -> Result<(Vec<SurveyResponse>, i64, i64, bool), ServiceError> {
         self.require_admin(admin_id).await?;
-        if limit < 1 {
-            return Err(ServiceError::bad_request("limit must be at least 1"));
-        }
-        let limit = limit.min(1000);
+        let page_size = page_size.clamp(1, 100);
+        let page = page.max(1);
         let pool = self.db_pool.clone();
-        block_dao(move || AdminDao::new(&pool).list_survey_responses(limit)).await
+        let mut rows = block_dao(move || {
+            AdminDao::new(&pool).list_survey_responses(page, page_size, page_size + 1)
+        })
+        .await?;
+        let has_more = rows.len() > page_size as usize;
+        rows.truncate(page_size as usize);
+        Ok((rows, page, page_size, has_more))
     }
 
     pub async fn create_study_topic(

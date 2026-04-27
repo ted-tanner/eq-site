@@ -8,8 +8,11 @@ function getCookie(name) {
 
 async function request(method, path, body) {
   const headers = {};
+  const mutates = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
+  }
+  if (mutates) {
     const xsrf = getCookie("xsrf-token");
     if (xsrf) headers["x-xsrf-token"] = decodeURIComponent(xsrf);
   }
@@ -95,6 +98,11 @@ export const api = {
   listPending: () => authenticatedRequest("GET", "/api/admin/pending"),
   listPendingAnonymousPosts: () =>
     authenticatedRequest("GET", "/api/admin/anonymous-posts/pending"),
+  listSurveyResponses: (page = 1, pageSize = 25) =>
+    authenticatedRequest(
+      "GET",
+      `/api/admin/survey-responses?page=${page}&page_size=${pageSize}`
+    ),
   listUsers: () => authenticatedRequest("GET", "/api/admin/users?page=1&page_size=200"),
   approveUser: (userId) => authenticatedRequest("POST", `/api/admin/users/${userId}/approve`, {}),
   approveAnonymousPost: (postId) =>

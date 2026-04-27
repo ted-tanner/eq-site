@@ -898,15 +898,18 @@ async fn old_survey_response_paths_are_not_registered() {
     .await;
     assert_eq!(old_public.status(), StatusCode::NOT_FOUND);
 
-    let old_admin = test::call_service(
+    let old_top_level_admin_list = test::call_service(
         &app,
         test::TestRequest::get()
-            .uri("/api/admin/survey-responses?limit=10")
+            .uri("/api/survey-responses?limit=10")
             .cookie(access_cookie(&admin))
             .to_request(),
     )
     .await;
-    assert_eq!(old_admin.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        old_top_level_admin_list.status(),
+        StatusCode::METHOD_NOT_ALLOWED
+    );
 }
 
 #[actix_web::test]
@@ -946,15 +949,8 @@ async fn survey_response_endpoint_rate_limits_to_one_per_period() {
 }
 
 #[actix_web::test]
-async fn admin_survey_response_endpoint_requires_admin_and_limit() {
+async fn admin_survey_response_endpoint_requires_admin() {
     let state = test_state();
-    let admin = seed_user(
-        &state,
-        "survey-admin@example.com",
-        true,
-        ACCOUNT_ACTIVE,
-        false,
-    );
     let member = seed_user(
         &state,
         "survey-member@example.com",
@@ -964,20 +960,10 @@ async fn admin_survey_response_endpoint_requires_admin_and_limit() {
     );
     let app = test::init_service(configure_app(state)).await;
 
-    let missing_limit = test::call_service(
-        &app,
-        test::TestRequest::get()
-            .uri("/api/survey-responses")
-            .cookie(access_cookie(&admin))
-            .to_request(),
-    )
-    .await;
-    assert_eq!(missing_limit.status(), StatusCode::BAD_REQUEST);
-
     let unauthenticated = test::call_service(
         &app,
         test::TestRequest::get()
-            .uri("/api/survey-responses?limit=10")
+            .uri("/api/admin/survey-responses")
             .to_request(),
     )
     .await;
@@ -986,7 +972,7 @@ async fn admin_survey_response_endpoint_requires_admin_and_limit() {
     let non_admin = test::call_service(
         &app,
         test::TestRequest::get()
-            .uri("/api/survey-responses?limit=10")
+            .uri("/api/admin/survey-responses")
             .cookie(access_cookie(&member))
             .to_request(),
     )
@@ -995,7 +981,7 @@ async fn admin_survey_response_endpoint_requires_admin_and_limit() {
 }
 
 #[actix_web::test]
-async fn admin_survey_response_endpoint_returns_most_recent_limited_responses() {
+async fn admin_survey_response_endpoint_pages_latest_responses() {
     let state = test_state();
     let admin = seed_user(
         &state,
@@ -1004,72 +990,64 @@ async fn admin_survey_response_endpoint_returns_most_recent_limited_responses() 
         ACCOUNT_ACTIVE,
         false,
     );
-    let app = test::init_service(configure_app(state.clone())).await;
+    {
+        let mut conn = state.db_pool.get().expect("db conn");
+        for (id, food, created_at) in [
+            ("survey-a", "oldest", 100),
+            ("survey-b", "newer b", 200),
+            ("survey-c", "newer c", 200),
+        ] {
+            diesel::insert_into(survey_responses::table)
+                .values(NewSurveyResponse {
+                    id,
+                    food_suggestions: Some(food),
+                    dietary_restrictions: None,
+                    created_at,
+                })
+                .execute(&mut conn)
+                .expect("insert survey response");
+        }
+    }
+    let app = test::init_service(configure_app(state)).await;
 
-    let first = test::call_service(
-        &app,
-        test::TestRequest::post()
-            .uri("/api/survey-responses")
-            .peer_addr("127.0.1.12:12345".parse().unwrap())
-            .cookie(csrf_cookie())
-            .insert_header(("x-xsrf-token", CSRF))
-            .set_json(json!({
-                "food_suggestions": "first",
-                "dietary_restrictions": "none"
-            }))
-            .to_request(),
-    )
-    .await;
-    assert_eq!(first.status(), StatusCode::CREATED);
-    let first_body: Value = test::read_body_json(first).await;
-    let first_id = first_body["id"].as_str().unwrap().to_string();
-
-    let second = test::call_service(
-        &app,
-        test::TestRequest::post()
-            .uri("/api/survey-responses")
-            .peer_addr("127.0.1.13:12345".parse().unwrap())
-            .cookie(csrf_cookie())
-            .insert_header(("x-xsrf-token", CSRF))
-            .set_json(json!({
-                "food_suggestions": "second",
-                "dietary_restrictions": "vegan"
-            }))
-            .to_request(),
-    )
-    .await;
-    assert_eq!(second.status(), StatusCode::CREATED);
-    let second_body: Value = test::read_body_json(second).await;
-    let second_id = second_body["id"].as_str().unwrap().to_string();
-
-    let mut conn = state.db_pool.get().expect("db conn");
-    diesel::update(survey_responses::table.find(&first_id))
-        .set(survey_responses::created_at.eq(100))
-        .execute(&mut conn)
-        .expect("set first timestamp");
-    diesel::update(survey_responses::table.find(&second_id))
-        .set(survey_responses::created_at.eq(200))
-        .execute(&mut conn)
-        .expect("set second timestamp");
-    drop(conn);
-
-    let listed = test::call_service(
+    let first_page = test::call_service(
         &app,
         test::TestRequest::get()
-            .uri("/api/survey-responses?limit=1")
+            .uri("/api/admin/survey-responses?page=1&page_size=2")
             .cookie(access_cookie(&admin))
             .to_request(),
     )
     .await;
-    assert_eq!(listed.status(), StatusCode::OK);
-    let listed_body: Value = test::read_body_json(listed).await;
-    let responses = listed_body["responses"].as_array().unwrap();
+    assert_eq!(first_page.status(), StatusCode::OK);
+    let first_body: Value = test::read_body_json(first_page).await;
+    assert_eq!(first_body["page"], 1);
+    assert_eq!(first_body["page_size"], 2);
+    assert_eq!(first_body["has_more"], true);
+    let responses = first_body["responses"].as_array().unwrap();
+    assert_eq!(responses.len(), 2);
+    assert_eq!(responses[0]["id"], "survey-c");
+    assert_eq!(responses[1]["id"], "survey-b");
+
+    let second_page = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/admin/survey-responses?page=2&page_size=2")
+            .cookie(access_cookie(&admin))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(second_page.status(), StatusCode::OK);
+    let second_body: Value = test::read_body_json(second_page).await;
+    assert_eq!(second_body["page"], 2);
+    assert_eq!(second_body["page_size"], 2);
+    assert_eq!(second_body["has_more"], false);
+    let responses = second_body["responses"].as_array().unwrap();
     assert_eq!(responses.len(), 1);
-    assert_eq!(responses[0]["id"], second_id);
+    assert_eq!(responses[0]["id"], "survey-a");
 }
 
 #[actix_web::test]
-async fn admin_survey_response_endpoint_clamps_limit_to_1000() {
+async fn admin_survey_response_endpoint_defaults_and_clamps_paging() {
     let state = test_state();
     let admin = seed_user(
         &state,
@@ -1080,7 +1058,7 @@ async fn admin_survey_response_endpoint_clamps_limit_to_1000() {
     );
     {
         let mut conn = state.db_pool.get().expect("db conn");
-        for index in 0..1001 {
+        for index in 0..101 {
             let id = Uuid::now_v7().to_string();
             let food = format!("response-{index}");
             diesel::insert_into(survey_responses::table)
@@ -1099,12 +1077,52 @@ async fn admin_survey_response_endpoint_clamps_limit_to_1000() {
     let listed = test::call_service(
         &app,
         test::TestRequest::get()
-            .uri("/api/survey-responses?limit=2000")
+            .uri("/api/admin/survey-responses?page=0&page_size=200")
             .cookie(access_cookie(&admin))
             .to_request(),
     )
     .await;
     assert_eq!(listed.status(), StatusCode::OK);
     let listed_body: Value = test::read_body_json(listed).await;
-    assert_eq!(listed_body["responses"].as_array().unwrap().len(), 1000);
+    assert_eq!(listed_body["page"], 1);
+    assert_eq!(listed_body["page_size"], 100);
+    assert_eq!(listed_body["has_more"], true);
+    assert_eq!(listed_body["responses"].as_array().unwrap().len(), 100);
+
+    let defaulted = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/admin/survey-responses")
+            .cookie(access_cookie(&admin))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(defaulted.status(), StatusCode::OK);
+    let defaulted_body: Value = test::read_body_json(defaulted).await;
+    assert_eq!(defaulted_body["page"], 1);
+    assert_eq!(defaulted_body["page_size"], 25);
+    assert_eq!(defaulted_body["responses"].as_array().unwrap().len(), 25);
+}
+
+#[actix_web::test]
+async fn admin_survey_response_endpoint_rejects_old_limit_query() {
+    let state = test_state();
+    let admin = seed_user(
+        &state,
+        "survey-limit-admin@example.com",
+        true,
+        ACCOUNT_ACTIVE,
+        false,
+    );
+    let app = test::init_service(configure_app(state)).await;
+
+    let listed = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/admin/survey-responses?limit=10")
+            .cookie(access_cookie(&admin))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(listed.status(), StatusCode::BAD_REQUEST);
 }

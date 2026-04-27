@@ -35,6 +35,7 @@ const emptySurveyForm = {
   dietary_restrictions: "",
 };
 const FEED_PAGE_SIZE = 20;
+const SURVEY_RESPONSE_PAGE_SIZE = 25;
 const HIGHLIGHT_CLEAR_MS = 4500;
 const POST_RATE_LIMIT_MESSAGE =
   "You already made a post. Please wait a few minutes before making another.";
@@ -158,6 +159,30 @@ function isSurveyPath() {
   return window.location.pathname.replace(/\/+$/, "") === "/survey";
 }
 
+function ArrowRightIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M13.3 5.3 20 12l-6.7 6.7-1.4-1.4 4.3-4.3H4v-2h12.2l-4.3-4.3 1.4-1.4Z" />
+    </svg>
+  );
+}
+
+function ReplyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M10 5 3 12l7 7v-4h4.5c2.6 0 4.8 1.5 5.9 3.7.4-1 .6-2 .6-3.1 0-4.2-3.4-7.6-7.6-7.6H10V5Z" />
+    </svg>
+  );
+}
+
+function CommentIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 5h14v10H8.8L5 18.8V5Zm2 2v7l1-1h9V7H7Z" />
+    </svg>
+  );
+}
+
 export default function App() {
   const [bootstrapping, setBootstrapping] = createSignal(true);
   const [session, setSession] = createSignal(null);
@@ -187,10 +212,14 @@ export default function App() {
     users: [],
     events: [],
     study_topics: [],
+    survey_responses: [],
+    survey_response_page: 1,
+    survey_response_has_more: false,
   });
   const [postForm, setPostForm] = createSignal({ body: "", anonymous: false });
   const [showPostModal, setShowPostModal] = createSignal(false);
   const [replyBody, setReplyBody] = createSignal("");
+  const [focusReplyOnOpen, setFocusReplyOnOpen] = createSignal(false);
   const [landingData, setLandingData] = createSignal({
     upcoming_events: [],
     current_study_topic: null,
@@ -205,6 +234,8 @@ export default function App() {
   const [showSurveyModal, setShowSurveyModal] = createSignal(false);
   const [surveyForm, setSurveyForm] = createSignal(emptySurveyForm);
   const [surveySubmitting, setSurveySubmitting] = createSignal(false);
+  const [surveyResponsesLoading, setSurveyResponsesLoading] =
+    createSignal(false);
   const [changePasswordForm, setChangePasswordForm] = createSignal({
     current_password: "",
     new_password: "",
@@ -214,6 +245,7 @@ export default function App() {
   let notificationAnchor;
   let mobileAccountMenuAnchor;
   let feedSentinel;
+  let replyTextarea;
   let highlightTimer;
 
   const canReadFeed = createMemo(() => {
@@ -295,22 +327,54 @@ export default function App() {
   }
 
   async function refreshAdminData() {
-    const [pending, anonymousPosts, users, events, topics] = await Promise.all([
-      api.listPending(),
-      api.listPendingAnonymousPosts(),
-      api.listUsers(),
-      api.listEvents(),
-      api.listStudyTopics(),
-    ]);
+    const [pending, anonymousPosts, users, events, topics, surveyResponses] =
+      await Promise.all([
+        api.listPending(),
+        api.listPendingAnonymousPosts(),
+        api.listUsers(),
+        api.listEvents(),
+        api.listStudyTopics(),
+        api.listSurveyResponses(1, SURVEY_RESPONSE_PAGE_SIZE),
+      ]);
     const nextData = {
       pending_users: pending.pending_users || [],
       pending_anonymous_posts: anonymousPosts.posts || [],
       users: users.users || [],
       events: events.events || [],
       study_topics: topics.topics || [],
+      survey_responses: surveyResponses.responses || [],
+      survey_response_page: surveyResponses.page || 1,
+      survey_response_has_more: !!surveyResponses.has_more,
     };
     setAdminData(nextData);
     return nextData;
+  }
+
+  async function loadMoreSurveyResponses() {
+    if (surveyResponsesLoading() || !adminData().survey_response_has_more) {
+      return;
+    }
+    setSurveyResponsesLoading(true);
+    try {
+      const nextPage = adminData().survey_response_page + 1;
+      const surveyResponses = await api.listSurveyResponses(
+        nextPage,
+        SURVEY_RESPONSE_PAGE_SIZE,
+      );
+      setAdminData((current) => ({
+        ...current,
+        survey_responses: [
+          ...current.survey_responses,
+          ...(surveyResponses.responses || []),
+        ],
+        survey_response_page: surveyResponses.page || nextPage,
+        survey_response_has_more: !!surveyResponses.has_more,
+      }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSurveyResponsesLoading(false);
+    }
   }
 
   async function refreshNotifications(currentUser = session()) {
@@ -421,6 +485,16 @@ export default function App() {
     setCurrentView("home");
     setFeedHasMore(false);
     setFeedPage(1);
+    setAdminData({
+      pending_users: [],
+      pending_anonymous_posts: [],
+      users: [],
+      events: [],
+      study_topics: [],
+      survey_responses: [],
+      survey_response_page: 1,
+      survey_response_has_more: false,
+    });
     await refreshLanding();
   }
 
@@ -448,6 +522,21 @@ export default function App() {
       setError(err.message);
       return false;
     }
+  }
+
+  async function openThread(postId, options = {}) {
+    setError("");
+    setShowNotifications(false);
+    setShowMobileAccountMenu(false);
+    setFocusReplyOnOpen(!!options.focusReply);
+    return loadThread(postId);
+  }
+
+  function closeThread() {
+    setThread(null);
+    setReplyBody("");
+    setFocusReplyOnOpen(false);
+    setHighlightedReplyId(null);
   }
 
   function scrollToTarget(target) {
@@ -627,8 +716,16 @@ export default function App() {
     setError("");
     try {
       await api.createReply(thread().post.id, { body: replyBody() });
+      const postId = thread().post.id;
       setReplyBody("");
-      await loadThread(thread().post.id);
+      setPosts((current) =>
+        current.map((post) =>
+          post.id === postId
+            ? { ...post, reply_count: (post.reply_count || 0) + 1 }
+            : post,
+        ),
+      );
+      await loadThread(postId);
       await refreshNotifications();
     } catch (err) {
       setError(err.message);
@@ -670,7 +767,7 @@ export default function App() {
 
   function returnToLanding() {
     setCurrentView("home");
-    setThread(null);
+    closeThread();
     setShowNotifications(false);
     setShowMobileAccountMenu(false);
   }
@@ -736,6 +833,10 @@ export default function App() {
       delete: `Permanently delete ${label}? This cannot be undone.`,
     };
     return window.confirm(messages[action]);
+  }
+
+  function confirmPostDelete() {
+    return window.confirm("Permanently delete this post? This cannot be undone.");
   }
 
   function adminEventLabel(item) {
@@ -1245,36 +1346,68 @@ export default function App() {
               {(post) => (
                 <article class="post-card">
                   <div class="post-meta">
-                    <span>
-                      {post.is_anonymous ? "Anonymous" : post.author_name}
-                    </span>
-                    <span>
+                    <div>
+                      <span
+                        classList={{
+                          "post-author": true,
+                          "anonymous-author": post.is_anonymous,
+                        }}
+                      >
+                        {post.is_anonymous ? "Anonymous" : post.author_name}
+                      </span>
+                    </div>
+                    <time
+                      dateTime={new Date(post.created_at * 1000).toISOString()}
+                    >
                       {new Date(post.created_at * 1000).toLocaleString()}
-                    </span>
+                    </time>
                   </div>
-                  <p>{post.body}</p>
-                  <div class="post-actions">
-                    <button
-                      class="ghost-button"
-                      onClick={() => loadThread(post.id)}
-                    >
-                      Open thread
-                    </button>
-                    <Show
-                      when={
-                        !post.is_anonymous &&
-                        post.author_user_id === session()?.id
-                      }
-                    >
+                  <p class="post-body">{post.body}</p>
+                  <div class="post-actions feed-post-actions">
+                    <div class="view-thread-group">
                       <button
-                        class="ghost-button danger"
-                        onClick={() =>
-                          adminAction(() => api.deletePost(post.id))
+                        class="ghost-button icon-label-button"
+                        onClick={() => openThread(post.id)}
+                      >
+                        <span>View thread</span>
+                        <ArrowRightIcon />
+                      </button>
+                      <Show when={(post.reply_count || 0) > 0}>
+                        <span class="reply-count" aria-label={`${post.reply_count} replies`}>
+                          <CommentIcon />
+                          <span>{post.reply_count}</span>
+                        </span>
+                      </Show>
+                    </div>
+                    <div class="post-secondary-actions">
+                      <Show when={session()?.account_status === "active"}>
+                        <button
+                          class="ghost-button icon-label-button"
+                          onClick={() =>
+                            openThread(post.id, { focusReply: true })
+                          }
+                        >
+                          <ReplyIcon />
+                          <span>Reply</span>
+                        </button>
+                      </Show>
+                      <Show
+                        when={
+                          !post.is_anonymous &&
+                          post.author_user_id === session()?.id
                         }
                       >
-                        Delete
-                      </button>
-                    </Show>
+                        <button
+                          class="ghost-button danger"
+                          onClick={() =>
+                            confirmPostDelete() &&
+                            adminAction(() => api.deletePost(post.id))
+                          }
+                        >
+                          Delete
+                        </button>
+                      </Show>
+                    </div>
                   </div>
                 </article>
               )}
@@ -1289,6 +1422,137 @@ export default function App() {
             </Show>
           </div>
         </section>
+      </Show>
+    );
+  }
+
+  function ThreadModal() {
+    return (
+      <Show when={thread()}>
+        <div class="modal-backdrop thread-backdrop" role="presentation">
+          <section
+            class="modal-panel thread-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="thread-modal-title"
+          >
+            <div class="section-title-row thread-modal-header">
+              <h2 id="thread-modal-title">Thread</h2>
+              <button class="ghost-button" type="button" onClick={closeThread}>
+                Close
+              </button>
+            </div>
+
+            <div class="thread-scroll">
+              <article
+                classList={{
+                  "thread-original": true,
+                  "notification-target":
+                    highlightedReplyId() === thread().post.id,
+                }}
+                data-scroll-target={`reply:${thread().post.id}`}
+              >
+                <div class="thread-label">Original post</div>
+                <div class="post-meta">
+                  <div>
+                    <span
+                      classList={{
+                        "post-author": true,
+                        "anonymous-author": thread().post.is_anonymous,
+                      }}
+                    >
+                      {thread().post.is_anonymous
+                        ? "Anonymous"
+                        : thread().post.author_name}
+                    </span>
+                  </div>
+                  <time
+                    dateTime={new Date(
+                      thread().post.created_at * 1000,
+                    ).toISOString()}
+                  >
+                    {new Date(thread().post.created_at * 1000).toLocaleString()}
+                  </time>
+                </div>
+                <p class="post-body">{thread().post.body}</p>
+              </article>
+
+              <div class="thread-replies" aria-label="Replies">
+                <Show
+                  when={thread().replies.length > 0}
+                  fallback={<p class="muted empty-thread">No replies yet</p>}
+                >
+                  <For each={thread().replies}>
+                    {(reply) => (
+                      <article
+                        classList={{
+                          "reply-card": true,
+                          "thread-reply": true,
+                          "notification-target":
+                            highlightedReplyId() === reply.id,
+                        }}
+                        data-scroll-target={`reply:${reply.id}`}
+                      >
+                        <div class="reply-node" aria-hidden="true"></div>
+                        <div class="reply-content">
+                          <div class="post-meta">
+                            <span class="post-author">{reply.author_name}</span>
+                            <time
+                              dateTime={new Date(
+                                reply.created_at * 1000,
+                              ).toISOString()}
+                            >
+                              {new Date(reply.created_at * 1000).toLocaleString()}
+                            </time>
+                          </div>
+                          <p class="post-body">{reply.body}</p>
+                          <Show
+                            when={
+                              reply.author_user_id === session()?.id ||
+                              session()?.is_admin
+                            }
+                          >
+                            <button
+                              class="ghost-button danger"
+                              type="button"
+                              onClick={() =>
+                                adminAction(() =>
+                                  api
+                                    .deleteReply(reply.id)
+                                    .then(() => loadThread(thread().post.id)),
+                                )
+                              }
+                            >
+                              Delete
+                            </button>
+                          </Show>
+                        </div>
+                      </article>
+                    )}
+                  </For>
+                </Show>
+              </div>
+            </div>
+
+            <Show when={session()?.account_status === "active"}>
+              <form class="stack-form thread-reply-form" onSubmit={submitReply}>
+                <textarea
+                  ref={replyTextarea}
+                  rows="3"
+                  placeholder="Write a reply"
+                  value={replyBody()}
+                  onInput={(event) => setReplyBody(event.currentTarget.value)}
+                />
+                <div class="post-actions wrap thread-form-actions">
+                  <button class="primary-button icon-label-button" type="submit">
+                    <ReplyIcon />
+                    <span>Reply</span>
+                  </button>
+                </div>
+              </form>
+            </Show>
+          </section>
+        </div>
       </Show>
     );
   }
@@ -1966,6 +2230,67 @@ export default function App() {
 
         <section class="panel admin-panel">
           <div class="section-title-row">
+            <h2>Survey responses</h2>
+          </div>
+          <div
+            class="admin-table-wrap"
+            role="region"
+            tabIndex="0"
+            aria-label="Scrollable survey responses table"
+          >
+            <table class="admin-table survey-responses-table">
+              <thead>
+                <tr>
+                  <th>Submitted</th>
+                  <th class="wide-column">Food suggestions</th>
+                  <th class="wide-column">Dietary restrictions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <Show
+                  when={adminData().survey_responses.length > 0}
+                  fallback={
+                    <tr>
+                      <td class="empty-cell" colSpan="3">
+                        No survey responses
+                      </td>
+                    </tr>
+                  }
+                >
+                  <For each={adminData().survey_responses}>
+                    {(response) => (
+                      <tr>
+                        <td>{formatTimestamp(response)}</td>
+                        <td class="wide-column preserve-lines">
+                          {response.food_suggestions || "No food suggestions"}
+                        </td>
+                        <td class="wide-column preserve-lines">
+                          {response.dietary_restrictions ||
+                            "No dietary restrictions"}
+                        </td>
+                      </tr>
+                    )}
+                  </For>
+                </Show>
+              </tbody>
+            </table>
+          </div>
+          <Show when={adminData().survey_response_has_more}>
+            <div class="admin-panel-actions">
+              <button
+                class="ghost-button"
+                type="button"
+                onClick={loadMoreSurveyResponses}
+                disabled={surveyResponsesLoading()}
+              >
+                {surveyResponsesLoading() ? "Loading..." : "Show more"}
+              </button>
+            </div>
+          </Show>
+        </section>
+
+        <section class="panel admin-panel">
+          <div class="section-title-row">
             <h2>Upcoming events</h2>
             <button class="primary-button" onClick={beginAddEvent}>
               + Add event
@@ -2151,6 +2476,15 @@ export default function App() {
     }
   });
 
+  createEffect(() => {
+    if (!thread() || !focusReplyOnOpen() || session()?.account_status !== "active") return;
+    window.setTimeout(() => {
+      replyTextarea?.focus();
+      replyTextarea?.scrollIntoView({ block: "center", behavior: "smooth" });
+      setFocusReplyOnOpen(false);
+    }, 0);
+  });
+
   onCleanup(() => {
     if (highlightTimer) window.clearTimeout(highlightTimer);
   });
@@ -2164,6 +2498,7 @@ export default function App() {
     };
     const closeSurveyOnEscape = (event) => {
       if (event.key === "Escape" && showSurveyModal()) closeSurveyModal();
+      if (event.key === "Escape" && thread()) closeThread();
     };
     const closeNotificationsOnOutsideClick = (event) => {
       if (
@@ -2474,103 +2809,7 @@ export default function App() {
                         <ManageAccountView />
                       </Show>
 
-                      <Show when={thread()}>
-                        <section class="panel">
-                          <div class="section-title-row">
-                            <h2>Thread</h2>
-                            <button
-                              class="ghost-button"
-                              onClick={() => setThread(null)}
-                            >
-                              Close
-                            </button>
-                          </div>
-                          <article
-                            classList={{
-                              "post-card": true,
-                              highlighted: true,
-                              "notification-target":
-                                highlightedReplyId() === thread().post.id,
-                            }}
-                            data-scroll-target={`reply:${thread().post.id}`}
-                          >
-                            <div class="post-meta">
-                              <span>
-                                {thread().post.is_anonymous
-                                  ? "Anonymous"
-                                  : thread().post.author_name}
-                              </span>
-                              <span>
-                                {new Date(
-                                  thread().post.created_at * 1000,
-                                ).toLocaleString()}
-                              </span>
-                            </div>
-                            <p>{thread().post.body}</p>
-                          </article>
-                          <div class="reply-list">
-                            <For each={thread().replies}>
-                              {(reply) => (
-                                <article
-                                  classList={{
-                                    "reply-card": true,
-                                    "notification-target":
-                                      highlightedReplyId() === reply.id,
-                                  }}
-                                  data-scroll-target={`reply:${reply.id}`}
-                                >
-                                  <div class="post-meta">
-                                    <span>{reply.author_name}</span>
-                                    <span>
-                                      {new Date(
-                                        reply.created_at * 1000,
-                                      ).toLocaleString()}
-                                    </span>
-                                  </div>
-                                  <p>{reply.body}</p>
-                                  <Show
-                                    when={
-                                      reply.author_user_id === session()?.id ||
-                                      session()?.is_admin
-                                    }
-                                  >
-                                    <button
-                                      class="ghost-button danger"
-                                      onClick={() =>
-                                        adminAction(() =>
-                                          api
-                                            .deleteReply(reply.id)
-                                            .then(() =>
-                                              loadThread(thread().post.id),
-                                            ),
-                                        )
-                                      }
-                                    >
-                                      Delete
-                                    </button>
-                                  </Show>
-                                </article>
-                              )}
-                            </For>
-                          </div>
-                          <Show when={session()?.account_status === "active"}>
-                            <form class="stack-form" onSubmit={submitReply}>
-                              <textarea
-                                rows="3"
-                                placeholder="Write a reply"
-                                value={replyBody()}
-                                onInput={(event) =>
-                                  setReplyBody(event.currentTarget.value)
-                                }
-                              />
-                              <button class="primary-button" type="submit">
-                                Reply
-                              </button>
-                            </form>
-                          </Show>
-                        </section>
-                      </Show>
-
+                      <ThreadModal />
                       <PostModal />
                       <SurveyModal />
                     </>

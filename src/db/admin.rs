@@ -162,11 +162,18 @@ impl AdminDao {
             .map_err(DaoError::from)
     }
 
-    pub fn list_survey_responses(&self, limit: i64) -> Result<Vec<SurveyResponse>, DaoError> {
+    pub fn list_survey_responses(
+        &self,
+        page: i64,
+        page_size: i64,
+        fetch_limit: i64,
+    ) -> Result<Vec<SurveyResponse>, DaoError> {
         let mut conn = self.db_pool.get()?;
         survey_responses::table
             .order(survey_responses::created_at.desc())
-            .limit(limit)
+            .then_order_by(survey_responses::id.desc())
+            .limit(fetch_limit)
+            .offset((page - 1) * page_size)
             .select(SurveyResponse::as_select())
             .load::<SurveyResponse>(&mut conn)
             .map_err(DaoError::from)

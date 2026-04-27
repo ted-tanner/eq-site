@@ -94,6 +94,12 @@ pub fn configure(cfg: &mut ServiceConfig, limiters: RateLimiters) {
                     ),
             )
             .service(
+                resource("/survey-responses")
+                    .route(get().to(admin_handler::list_survey_responses))
+                    .wrap(limiters.read_fair_use.clone())
+                    .wrap(limiters.read_circuit_breaker.clone()),
+            )
+            .service(
                 resource("/users")
                     .route(get().to(admin_handler::list_users))
                     .wrap(limiters.read_fair_use.clone())

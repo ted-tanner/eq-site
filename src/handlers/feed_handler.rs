@@ -42,6 +42,7 @@ pub struct FeedPostResponse {
     pub updated_at: i64,
     pub author_user_id: Option<String>,
     pub author_name: Option<String>,
+    pub reply_count: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,7 +62,11 @@ pub struct ThreadResponse {
     pub replies: Vec<ReplyResponse>,
 }
 
-pub(crate) fn post_to_response(post: Post, author_name: Option<String>) -> FeedPostResponse {
+pub(crate) fn post_to_response(
+    post: Post,
+    author_name: Option<String>,
+    reply_count: i64,
+) -> FeedPostResponse {
     FeedPostResponse {
         id: post.id,
         body: post.body,
@@ -71,6 +76,7 @@ pub(crate) fn post_to_response(post: Post, author_name: Option<String>) -> FeedP
         updated_at: post.updated_at,
         author_user_id: post.author_user_id,
         author_name,
+        reply_count,
     }
 }
 
@@ -101,7 +107,7 @@ pub async fn list_posts(
         .await?;
     let response = posts
         .into_iter()
-        .map(|(post, author_name)| post_to_response(post, author_name))
+        .map(|(post, author_name, reply_count)| post_to_response(post, author_name, reply_count))
         .collect::<Vec<_>>();
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "posts": response,
@@ -122,8 +128,9 @@ pub async fn get_post_thread(
             path.into_inner(),
         )
         .await?;
+    let reply_count = replies.len() as i64;
     Ok(HttpResponse::Ok().json(ThreadResponse {
-        post: post_to_response(post, post_author_name),
+        post: post_to_response(post, post_author_name, reply_count),
         replies: replies
             .into_iter()
             .map(|(reply, author_name)| reply_to_response(reply, author_name))
@@ -148,7 +155,7 @@ pub async fn create_post(
         let user_id = required_post_user_id(&state, &req).await?;
         service.create_post(user_id, input).await?
     };
-    Ok(HttpResponse::Created().json(post_to_response(post, author_name)))
+    Ok(HttpResponse::Created().json(post_to_response(post, author_name, 0)))
 }
 
 async fn required_post_user_id(
