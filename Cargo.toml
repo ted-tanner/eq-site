@@ -1,0 +1,36 @@
+[package]
+name = "eq-sharing"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+actix-files = "0.6"
+actix-web = { version = "4.13", features = ["rustls-0_23"] }
+ahash = "0.8"
+argon2-kdf = "1.6"
+async-trait = "0.1"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+diesel = { version = "2.3", features = ["sqlite", "r2d2", "chrono"] }
+diesel_migrations = { version = "2.3", features = ["sqlite"] }
+flexi_logger = "0.31"
+futures = "0.3"
+hashbrown = "0.17"
+hmac = "0.12"
+libsqlite3-sys = { version = "0.35", features = ["bundled"] }
+log = "0.4"
+rand = "0.9"
+rayon = "1.11"
+r2d2 = "0.8"
+rustls = { version = "0.23", features = ["aws_lc_rs"] }
+rustls-pemfile = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tokio = { version = "1.50", features = ["full"] }
+uuid = { version = "1.23", features = ["v7", "serde"] }
+zeroize = { version = "1.8", features = ["derive"] }
+
+[dev-dependencies]
+actix-http = "3"
+actix-rt = "2"

@@ -1,0 +1,35 @@
+# Rust
+/target
+
+# Frontend
+/web
+/frontend/node_modules
+
+# Environment
+.env
+
+# Logs
+/logs
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# SQLite
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-trace
+*.sqlite-trace-journal
+*.sqlite-trace-wal
+*.sqlite-trace-shm
+*.db
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store

@@ -1,0 +1,18 @@
+{
+  "name": "eq-sharing-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build --outDir ../web",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "solid-js": "^1.9.9"
+  },
+  "devDependencies": {
+    "vite": "^7.2.2",
+    "vite-plugin-solid": "^2.11.10"
+  }
+}
