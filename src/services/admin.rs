@@ -383,17 +383,17 @@ fn validate_event_end(
             "End date cannot be before event date",
         ));
     }
-    if effective_end_date == start_date {
-        if let (Some(event_time), Some(end_time)) = (event_time, end_time) {
-            let start_time = NaiveTime::parse_from_str(event_time, "%H:%M")
-                .map_err(|_| ServiceError::bad_request("Invalid event time"))?;
-            let end_time = NaiveTime::parse_from_str(end_time, "%H:%M")
-                .map_err(|_| ServiceError::bad_request("Invalid end time"))?;
-            if end_time < start_time {
-                return Err(ServiceError::bad_request(
-                    "End time cannot be before event time",
-                ));
-            }
+    if effective_end_date == start_date
+        && let (Some(event_time), Some(end_time)) = (event_time, end_time)
+    {
+        let start_time = NaiveTime::parse_from_str(event_time, "%H:%M")
+            .map_err(|_| ServiceError::bad_request("Invalid event time"))?;
+        let end_time = NaiveTime::parse_from_str(end_time, "%H:%M")
+            .map_err(|_| ServiceError::bad_request("Invalid end time"))?;
+        if end_time < start_time {
+            return Err(ServiceError::bad_request(
+                "End time cannot be before event time",
+            ));
         }
     }
     Ok(())
@@ -403,7 +403,9 @@ fn validated_week_start(value: &str) -> Result<String, ServiceError> {
     let parsed = NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
         .map_err(|_| ServiceError::bad_request("Invalid week_start"))?;
     if parsed.weekday() != Weekday::Mon {
-        return Err(ServiceError::bad_request("week_start must be a Monday"));
+        return Err(ServiceError::bad_request(
+            "Please choose the Monday that starts the study week",
+        ));
     }
     Ok(parsed.format("%Y-%m-%d").to_string())
 }

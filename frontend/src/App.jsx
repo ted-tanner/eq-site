@@ -38,6 +38,8 @@ const FEED_PAGE_SIZE = 20;
 const HIGHLIGHT_CLEAR_MS = 4500;
 const POST_RATE_LIMIT_MESSAGE =
   "You already made a post. Please wait a few minutes before making another.";
+const STUDY_WEEK_START_MESSAGE =
+  "Please choose the Monday that starts the study week";
 
 function selectorValue(value) {
   if (window.CSS?.escape) return window.CSS.escape(value);
@@ -101,9 +103,31 @@ function formatEventEndpoint(dateValue, timeValue) {
     : date.toLocaleDateString([], { dateStyle: "medium" });
 }
 
-function formatWeekLabel(weekStart) {
-  const date = new Date(`${weekStart}T00:00:00`);
-  return date.toLocaleDateString([], { dateStyle: "full" });
+function formatWeekRangeLabel(weekStart) {
+  const startDate = new Date(`${weekStart}T00:00:00`);
+  const endDate = new Date(startDate);
+  endDate.setDate(startDate.getDate() + 6);
+
+  if (startDate.getFullYear() !== endDate.getFullYear()) {
+    return `${startDate.toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })} - ${endDate.toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })}`;
+  }
+
+  return `${startDate.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  })} - ${endDate.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })}`;
 }
 
 function todayIsoDate() {
@@ -116,6 +140,12 @@ function currentMondayIsoDate() {
   const dayOffset = (today.getDay() + 6) % 7;
   monday.setDate(today.getDate() - dayOffset);
   return monday.toISOString().slice(0, 10);
+}
+
+function isMondayDate(value) {
+  if (!value) return false;
+  const date = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(date.getTime()) && date.getDay() === 1;
 }
 
 function formatTimestamp(item) {
@@ -708,6 +738,26 @@ export default function App() {
     return window.confirm(messages[action]);
   }
 
+  function adminEventLabel(item) {
+    return item.name || "this event";
+  }
+
+  function confirmAdminEventDelete(item) {
+    return window.confirm(
+      `Permanently delete ${adminEventLabel(item)}? This cannot be undone.`,
+    );
+  }
+
+  function adminStudyTopicLabel(item) {
+    return item.name || "this study topic";
+  }
+
+  function confirmAdminStudyTopicDelete(item) {
+    return window.confirm(
+      `Permanently delete ${adminStudyTopicLabel(item)}? This cannot be undone.`,
+    );
+  }
+
   async function resetUserPassword(user) {
     if (!confirmAdminUserAction(user, "resetPassword")) return;
     try {
@@ -803,6 +853,10 @@ export default function App() {
   async function submitStudyTopic(event) {
     event.preventDefault();
     setError("");
+    if (!isMondayDate(studyTopicForm().week_start)) {
+      setError(STUDY_WEEK_START_MESSAGE);
+      return;
+    }
     const payload = {
       week_start: studyTopicForm().week_start,
       name: studyTopicForm().name,
@@ -830,38 +884,7 @@ export default function App() {
           "with-feed-divider": !!props?.withFeedDivider,
         }}
       >
-        <section class="landing-section">
-          <div class="section-title-row">
-            <h2>Upcoming events</h2>
-          </div>
-          <Show
-            when={landingData().upcoming_events.length > 0}
-            fallback={
-              <p class="muted">No upcoming events have been posted yet</p>
-            }
-          >
-            <div class="landing-list">
-              <For each={landingData().upcoming_events}>
-                {(item) => (
-                  <article class="landing-list-item">
-                    <div class="post-meta">
-                      <span>{formatEventDate(item)}</span>
-                      <Show when={item.location}>
-                        <span>{item.location}</span>
-                      </Show>
-                    </div>
-                    <h3>{item.name}</h3>
-                    <Show when={item.description}>
-                      <p>{item.description}</p>
-                    </Show>
-                  </article>
-                )}
-              </For>
-            </div>
-          </Show>
-        </section>
-
-        <section class="landing-section">
+        <section class="landing-section study-section">
           <div class="section-title-row">
             <h2>Study this week</h2>
             <Show when={landingData().has_upcoming_study_topics}>
@@ -882,6 +905,7 @@ export default function App() {
               <a
                 classList={{
                   "landing-list-item": true,
+                  "study-topic-item": true,
                   "landing-link-item": !!topic().hyperlink,
                 }}
                 href={topic().hyperlink || undefined}
@@ -889,7 +913,9 @@ export default function App() {
                 rel={topic().hyperlink ? "noreferrer" : undefined}
               >
                 <div class="post-meta">
-                  <span>Week of {formatWeekLabel(topic().week_start)}</span>
+                  <span>
+                    Week of {formatWeekRangeLabel(topic().week_start)}
+                  </span>
                 </div>
                 <h3>{topic().name}</h3>
                 <Show when={topic().description}>
@@ -905,6 +931,7 @@ export default function App() {
                   <a
                     classList={{
                       "landing-list-item": true,
+                      "study-topic-item": true,
                       "landing-link-item": !!topic.hyperlink,
                     }}
                     href={topic.hyperlink || undefined}
@@ -912,7 +939,9 @@ export default function App() {
                     rel={topic.hyperlink ? "noreferrer" : undefined}
                   >
                     <div class="post-meta">
-                      <span>Week of {formatWeekLabel(topic.week_start)}</span>
+                      <span>
+                        Week of {formatWeekRangeLabel(topic.week_start)}
+                      </span>
                     </div>
                     <h3>{topic.name}</h3>
                     <Show when={topic.description}>
@@ -924,6 +953,37 @@ export default function App() {
               <Show when={upcomingStudyTopics().length === 0}>
                 <p class="muted">No upcoming study topics have been posted</p>
               </Show>
+            </div>
+          </Show>
+        </section>
+
+        <section class="landing-section">
+          <div class="section-title-row">
+            <h2>Upcoming events</h2>
+          </div>
+          <Show
+            when={landingData().upcoming_events.length > 0}
+            fallback={
+              <p class="muted">No upcoming events have been posted yet</p>
+            }
+          >
+            <div class="landing-list landing-event-list">
+              <For each={landingData().upcoming_events}>
+                {(item) => (
+                  <article class="landing-list-item landing-event-item">
+                    <div class="post-meta">
+                      <span>{formatEventDate(item)}</span>
+                      <Show when={item.location}>
+                        <span>{item.location}</span>
+                      </Show>
+                    </div>
+                    <h3>{item.name}</h3>
+                    <Show when={item.description}>
+                      <p>{item.description}</p>
+                    </Show>
+                  </article>
+                )}
+              </For>
             </div>
           </Show>
         </section>
@@ -1294,11 +1354,7 @@ export default function App() {
             <form class="stack-form" onSubmit={submitPost}>
               <textarea
                 rows="5"
-                placeholder={
-                  postForm().anonymous
-                    ? "Share anonymously with the quorum."
-                    : "Share an update or request with the quorum."
-                }
+                placeholder="Share a challenge you're going through, a question you have, or a spiritual thought"
                 value={postForm().body}
                 onInput={(event) =>
                   setPostForm({
@@ -1322,8 +1378,8 @@ export default function App() {
               </label>
               <Show when={postForm().anonymous}>
                 <p class="muted">
-                  Anonymous posts cannot be edited or deleted after approval,
-                  and you will not receive notifications when someone replies.
+                  Anonymous posts cannot be edited or deleted and you will not
+                  receive notifications when someone replies
                 </p>
               </Show>
               <button class="primary-button" type="submit">
@@ -1502,6 +1558,8 @@ export default function App() {
                 <span>Week start (required)</span>
                 <input
                   type="date"
+                  min="1970-01-05"
+                  step="7"
                   value={studyTopicForm().week_start}
                   required
                   onInput={(event) =>
@@ -1511,7 +1569,9 @@ export default function App() {
                     })
                   }
                 />
-                <span class="field-note">Must be a Monday</span>
+                <span class="field-note">
+                  Choose the Monday that starts the study week.
+                </span>
               </label>
               <label class="field-group">
                 <span>Topic name (required)</span>
@@ -1697,7 +1757,12 @@ export default function App() {
           <div class="section-title-row">
             <h2>User management</h2>
           </div>
-          <div class="admin-table-wrap">
+          <div
+            class="admin-table-wrap"
+            role="region"
+            tabIndex="0"
+            aria-label="Scrollable user management table"
+          >
             <table class="admin-table">
               <thead>
                 <tr>
@@ -1829,7 +1894,12 @@ export default function App() {
           <div class="section-title-row">
             <h2>Anonymous post approvals</h2>
           </div>
-          <div class="admin-table-wrap">
+          <div
+            class="admin-table-wrap"
+            role="region"
+            tabIndex="0"
+            aria-label="Scrollable anonymous post approvals table"
+          >
             <table class="admin-table">
               <thead>
                 <tr>
@@ -1901,7 +1971,12 @@ export default function App() {
               + Add event
             </button>
           </div>
-          <div class="admin-table-wrap">
+          <div
+            class="admin-table-wrap"
+            role="region"
+            tabIndex="0"
+            aria-label="Scrollable upcoming events table"
+          >
             <table class="admin-table">
               <thead>
                 <tr>
@@ -1943,6 +2018,7 @@ export default function App() {
                             <button
                               class="ghost-button danger"
                               onClick={() =>
+                                confirmAdminEventDelete(item) &&
                                 adminAction(() => api.deleteEvent(item.id))
                               }
                             >
@@ -1966,7 +2042,12 @@ export default function App() {
               + Add study topic
             </button>
           </div>
-          <div class="admin-table-wrap">
+          <div
+            class="admin-table-wrap"
+            role="region"
+            tabIndex="0"
+            aria-label="Scrollable study topics table"
+          >
             <table class="admin-table">
               <thead>
                 <tr>
@@ -1991,7 +2072,7 @@ export default function App() {
                   <For each={adminData().study_topics}>
                     {(item) => (
                       <tr>
-                        <td>Week of {formatWeekLabel(item.week_start)}</td>
+                        <td>Week of {formatWeekRangeLabel(item.week_start)}</td>
                         <td>{item.name}</td>
                         <td class="wide-column preserve-lines">
                           {item.description || "No description"}
@@ -2019,6 +2100,7 @@ export default function App() {
                             <button
                               class="ghost-button danger"
                               onClick={() =>
+                                confirmAdminStudyTopicDelete(item) &&
                                 adminAction(() => api.deleteStudyTopic(item.id))
                               }
                             >
