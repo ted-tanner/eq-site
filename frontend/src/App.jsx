@@ -988,13 +988,6 @@ export default function App() {
         <section class="landing-section study-section">
           <div class="section-title-row">
             <h2>Study this week</h2>
-            <Show when={landingData().has_upcoming_study_topics}>
-              <button class="ghost-button" onClick={toggleUpcomingStudyTopics}>
-                {showUpcomingStudyTopics()
-                  ? "Hide upcoming weeks"
-                  : "See upcoming weeks"}
-              </button>
-            </Show>
           </div>
           <Show
             when={landingData().current_study_topic}
@@ -1008,6 +1001,8 @@ export default function App() {
                   "landing-list-item": true,
                   "study-topic-item": true,
                   "landing-link-item": !!topic().hyperlink,
+                  "with-upcoming-study-topics":
+                    showUpcomingStudyTopics() && upcomingStudyTopics().length > 0,
                 }}
                 href={topic().hyperlink || undefined}
                 target={topic().hyperlink ? "_blank" : undefined}
@@ -1055,6 +1050,17 @@ export default function App() {
                 <p class="muted">No upcoming study topics have been posted</p>
               </Show>
             </div>
+          </Show>
+          <Show when={landingData().has_upcoming_study_topics}>
+            <button
+              class="upcoming-study-toggle"
+              type="button"
+              onClick={toggleUpcomingStudyTopics}
+            >
+              {showUpcomingStudyTopics()
+                ? "- Hide upcoming weeks"
+                : "+ Show upcoming weeks"}
+            </button>
           </Show>
         </section>
 

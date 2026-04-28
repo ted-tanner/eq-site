@@ -4,6 +4,7 @@
   --surface-soft: #f7faf7;
   --ink: #17271f;
   --muted: #5d6f64;
+  --link-blue: #2563eb;
   --line: #d8e2dc;
   --accent: #1f7a4d;
   --accent-deep: #145735;
@@ -32,6 +33,7 @@
   --surface-soft: #181f1b;
   --ink: #eef5f0;
   --muted: #9daca4;
+  --link-blue: #60a5fa;
   --line: #2a342f;
   --accent: #2f8f5d;
   --accent-deep: #6ec593;
@@ -511,6 +513,31 @@ textarea:focus {
   margin-bottom: 8px;
 }
 
+.upcoming-study-toggle {
+  border: none;
+  margin-top: 4px;
+  padding: 0;
+  background: transparent;
+  color: var(--link-blue);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.3;
+  text-align: left;
+  text-decoration: none;
+}
+
+.upcoming-study-toggle:hover,
+.upcoming-study-toggle:focus-visible {
+  opacity: 0.85;
+  outline: none;
+  text-decoration: none;
+}
+
+.upcoming-study-toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
 .landing-panel.with-feed-divider .landing-section:last-child {
   border-bottom: 3px solid var(--line);
   padding-bottom: 24px;
@@ -577,6 +604,14 @@ textarea:focus {
 
 .study-topic-item {
   padding: 4px 0 8px;
+}
+
+.study-section > .study-topic-item {
+  border-bottom: none;
+}
+
+.study-section > .study-topic-item.with-upcoming-study-topics {
+  border-bottom: 1px solid var(--line);
 }
 
 .study-topic-item .post-meta {
