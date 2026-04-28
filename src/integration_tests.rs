@@ -29,7 +29,7 @@ struct SeededUser {
 }
 
 fn test_state() -> web::Data<AppState> {
-    let db_path = std::env::temp_dir().join(format!("eq-sharing-test-{}.db", Uuid::now_v7()));
+    let db_path = std::env::temp_dir().join(format!("eq-site-test-{}.db", Uuid::now_v7()));
     let db_url = db_path.to_string_lossy().to_string();
     let db_pool = db::create_db_pool(&db_url, 8);
     let mut conn = db_pool.get().expect("db conn");
@@ -82,6 +82,16 @@ fn access_cookie(user: &SeededUser) -> Cookie<'static> {
         "access_token",
         auth::create_access_token(&user.id, user.token_version, &user.account_status)
             .expect("access token"),
+    )
+    .path("/")
+    .finish()
+}
+
+fn refresh_cookie(user: &SeededUser) -> Cookie<'static> {
+    Cookie::build(
+        "refresh_token",
+        auth::create_refresh_token(&user.id, user.token_version, &user.account_status)
+            .expect("refresh token"),
     )
     .path("/")
     .finish()
@@ -207,6 +217,49 @@ async fn sign_in_missing_email_uses_generic_unauthorized_response() {
     .await;
     assert_eq!(still_can_sign_in.status(), StatusCode::OK);
     assert_eq!(user_row(&state, &user.id).email, "present@example.com");
+}
+
+#[actix_web::test]
+async fn refresh_rotates_auth_cookies_and_revokes_used_refresh_token() {
+    let state = test_state();
+    let user = seed_user(&state, "refresh@example.com", false, ACCOUNT_ACTIVE, false);
+    let app = test::init_service(configure_app(state.clone())).await;
+    let old_refresh_cookie = refresh_cookie(&user);
+
+    let refreshed = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/auth/refresh")
+            .cookie(old_refresh_cookie.clone())
+            .cookie(csrf_cookie())
+            .insert_header(("x-xsrf-token", CSRF))
+            .set_json(json!({}))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(refreshed.status(), StatusCode::OK);
+
+    let cookie_names = refreshed
+        .response()
+        .cookies()
+        .map(|cookie| cookie.name().to_string())
+        .collect::<Vec<_>>();
+    assert!(cookie_names.contains(&"access_token".to_string()));
+    assert!(cookie_names.contains(&"refresh_token".to_string()));
+    assert!(cookie_names.contains(&"xsrf-token".to_string()));
+
+    let reused = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/auth/refresh")
+            .cookie(old_refresh_cookie)
+            .cookie(csrf_cookie())
+            .insert_header(("x-xsrf-token", CSRF))
+            .set_json(json!({}))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(reused.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[actix_web::test]

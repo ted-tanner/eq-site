@@ -1,5 +1,5 @@
 use actix_web::cookie::{Cookie, SameSite};
-use argon2_kdf::{Algorithm, Hasher};
+use argon2_kdf::{Algorithm, Hasher, Secret};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as b64_urlsafe;
 use hmac::{Hmac, Mac};
@@ -36,6 +36,8 @@ pub struct TokenClaims {
     pub expiration: u64,
     #[serde(rename = "typ")]
     pub token_type: AuthTokenType,
+    #[serde(rename = "nnc")]
+    pub nonce: u64,
 }
 
 #[derive(Debug)]
@@ -99,6 +101,7 @@ pub fn generate_csrf_token() -> String {
 pub fn hash_password(password: &str) -> Result<String, AuthError> {
     Hasher::new()
         .algorithm(Algorithm::Argon2id)
+        .secret(Secret::using(&env::CONF.password_pepper))
         .hash_length(env::CONF.password_hash_length)
         .iterations(env::CONF.password_hash_iterations)
         .memory_cost_kib(env::CONF.password_hash_mem_cost_kib)
@@ -119,7 +122,10 @@ pub async fn hash_password_on_rayon(password: String) -> Result<String, AuthErro
 pub fn verify_password(password: &str, hash_str: &str) -> Result<bool, AuthError> {
     let hash = argon2_kdf::Hash::from_str(hash_str)
         .map_err(|e| AuthError::InvalidHashFormat(format!("{e:?}")))?;
-    Ok(hash.verify(password.as_bytes()))
+    Ok(hash.verify_with_secret(
+        password.as_bytes(),
+        Secret::using(&env::CONF.password_pepper),
+    ))
 }
 
 pub async fn verify_password_on_rayon(
@@ -189,6 +195,7 @@ fn create_token(
         account_status: account_status.to_string(),
         expiration,
         token_type,
+        nonce: rand::random(),
     };
     let mut payload = serde_json::to_vec(&claims)?;
     let sig = sign(&payload)?;

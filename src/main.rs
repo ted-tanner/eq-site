@@ -51,11 +51,11 @@ pub fn configure_app(
         .wrap(Logger::default())
         .configure(routes::configure)
         .route("/survey", web::get().to(survey_entrypoint))
-        .service(actix_files::Files::new("/", "./web").index_file("index.html"))
+        .service(actix_files::Files::new("/", env::CONF.web_path.clone()).index_file("index.html"))
 }
 
 async fn survey_entrypoint() -> actix_web::Result<NamedFile> {
-    NamedFile::open_async("./web/index.html")
+    NamedFile::open_async(env::CONF.web_path.join("index.html"))
         .await
         .map_err(Into::into)
 }
@@ -125,7 +125,7 @@ fn load_rustls_config(
     cert_path: &std::path::Path,
     key_path: &std::path::Path,
 ) -> std::io::Result<ServerConfig> {
-    rustls::crypto::aws_lc_rs::default_provider()
+    rustls::crypto::ring::default_provider()
         .install_default()
         .map_err(|e| std::io::Error::other(format!("{e:?}")))?;
 
