@@ -37,6 +37,21 @@ pub fn configure_app(
         InitError = (),
     >,
 > {
+    configure_app_with_limiters(state, routes::api::RateLimiters::default())
+}
+
+pub fn configure_app_with_limiters(
+    state: web::Data<AppState>,
+    limiters: routes::api::RateLimiters,
+) -> App<
+    impl actix_web::dev::ServiceFactory<
+        actix_web::dev::ServiceRequest,
+        Config = (),
+        Response = actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
+        Error = actix_web::Error,
+        InitError = (),
+    >,
+> {
     App::new()
         .app_data(state)
         .wrap(
@@ -49,7 +64,7 @@ pub fn configure_app(
         )
         .wrap(middleware::cors_middleware::CorsMiddleware::default())
         .wrap(Logger::default())
-        .configure(routes::configure)
+        .configure(|cfg| routes::configure_with_limiters(cfg, limiters))
         .route("/survey", web::get().to(survey_entrypoint))
         .service(actix_files::Files::new("/", env::CONF.web_path.clone()).index_file("index.html"))
 }
@@ -107,10 +122,12 @@ async fn main() -> std::io::Result<()> {
     }
 
     let state = web::Data::new(AppState { db_pool });
+    let limiters = routes::api::RateLimiters::default();
 
     let addr = format!("{}:{}", env::CONF.bind_host, env::CONF.port);
     let server =
-        HttpServer::new(move || configure_app(state.clone())).workers(env::CONF.actix_worker_count);
+        HttpServer::new(move || configure_app_with_limiters(state.clone(), limiters.clone()))
+            .workers(env::CONF.actix_worker_count);
 
     match (&env::CONF.tls_cert_path, &env::CONF.tls_key_path) {
         (Some(cert), Some(key)) => {

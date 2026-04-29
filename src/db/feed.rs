@@ -50,13 +50,13 @@ impl FeedDao {
             .collect())
     }
 
-    pub fn list_posts(&self, page: i64, page_size: i64) -> Result<Vec<Post>, DaoError> {
+    pub fn list_posts(&self, page: i64, page_size: i64, limit: i64) -> Result<Vec<Post>, DaoError> {
         let mut conn = self.db_pool.get()?;
         posts::table
             .filter(posts::approval_status.eq(POST_APPROVED))
             .order(posts::created_at.desc())
             .then_order_by(posts::id.desc())
-            .limit(page_size)
+            .limit(limit)
             .offset((page - 1) * page_size)
             .select(Post::as_select())
             .load::<Post>(&mut conn)

@@ -505,6 +505,20 @@ textarea:focus {
   padding-bottom: 0;
 }
 
+.site-disclaimer {
+  margin-top: 28px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.site-disclaimer a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .study-section {
   padding-bottom: 8px;
 }
@@ -690,6 +704,11 @@ textarea:focus {
   min-height: 32px;
   padding-top: 14px;
   text-align: center;
+}
+
+.feed-load-more {
+  font-size: 13px;
+  padding: 7px 14px;
 }
 
 .post-card.highlighted {

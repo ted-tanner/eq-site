@@ -113,7 +113,7 @@ pub async fn get_csrf_token() -> HttpResponse {
             &token,
             crate::env::CONF.access_token_lifetime.as_secs() as i64,
         ))
-        .json(serde_json::json!({ "ok": true }))
+        .finish()
 }
 
 pub async fn sign_up(
@@ -206,7 +206,7 @@ pub async fn logout(
         .cookie(auth::clear_auth_cookie("refresh_token"))
         .cookie(auth::clear_auth_cookie("sign_in_token"))
         .cookie(auth::clear_xsrf_cookie())
-        .json(serde_json::json!({ "success": true })))
+        .finish())
 }
 
 pub async fn change_password(
@@ -250,5 +250,5 @@ pub async fn delete_own_account(
         .cookie(auth::clear_auth_cookie("refresh_token"))
         .cookie(auth::clear_auth_cookie("sign_in_token"))
         .cookie(auth::clear_xsrf_cookie())
-        .json(serde_json::json!({ "success": true })))
+        .finish())
 }

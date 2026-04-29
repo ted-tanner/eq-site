@@ -34,9 +34,10 @@ const emptySurveyForm = {
   food_suggestions: "",
   dietary_restrictions: "",
 };
-const FEED_PAGE_SIZE = 20;
+const FEED_PAGE_SIZE = 10;
 const SURVEY_RESPONSE_PAGE_SIZE = 25;
 const HIGHLIGHT_CLEAR_MS = 4500;
+const NOTIFICATION_POLL_MS = 20000;
 const POST_RATE_LIMIT_MESSAGE =
   "You already made a post. Please wait a few minutes before making another.";
 const STUDY_WEEK_START_MESSAGE =
@@ -242,9 +243,9 @@ export default function App() {
     confirm_password: "",
   });
   let notificationToggleInFlight = false;
+  let notificationPollInFlight = false;
   let notificationAnchor;
   let mobileAccountMenuAnchor;
-  let feedSentinel;
   let replyTextarea;
   let highlightTimer;
 
@@ -266,6 +267,15 @@ export default function App() {
     setDismissedAccountWarning(false);
   });
 
+  createEffect(() => {
+    if (!session() || sessionKind() !== "full") return;
+    const notificationPoll = window.setInterval(
+      pollNotifications,
+      NOTIFICATION_POLL_MS,
+    );
+    onCleanup(() => window.clearInterval(notificationPoll));
+  });
+
   const adminUsers = createMemo(() => {
     const users = new Map();
     for (const user of adminData().pending_users) {
@@ -281,7 +291,6 @@ export default function App() {
     setBootstrapping(true);
     try {
       await api.ensureCsrf();
-      await refreshLanding();
       const response = await api.session();
       setSession(response.user);
       setSessionKind(response.session_kind);
@@ -323,7 +332,6 @@ export default function App() {
     }
 
     await refreshNotifications(currentUser);
-    if (currentUser.is_admin) await refreshAdminData();
   }
 
   async function refreshAdminData() {
@@ -390,6 +398,18 @@ export default function App() {
     setNotifications(merged);
     setUnreadCount(unread);
     return merged;
+  }
+
+  async function pollNotifications() {
+    if (notificationPollInFlight) return;
+    notificationPollInFlight = true;
+    try {
+      await refreshNotifications();
+    } catch {
+      // Polling is opportunistic; user-initiated notification fetches still surface errors.
+    } finally {
+      notificationPollInFlight = false;
+    }
   }
 
   async function submitSignIn(event) {
@@ -469,8 +489,7 @@ export default function App() {
     }
   }
 
-  async function signOut() {
-    await api.logout();
+  async function clearSessionState() {
     setSession(null);
     setSessionKind("none");
     setPosts([]);
@@ -498,6 +517,11 @@ export default function App() {
     await refreshLanding();
   }
 
+  async function signOut() {
+    await api.logout();
+    await clearSessionState();
+  }
+
   async function loadFeedPage(page = 1, append = false) {
     if (!canReadFeed() || feedLoading()) return;
     setFeedLoading(true);
@@ -506,12 +530,18 @@ export default function App() {
       const nextPosts = feed.posts || [];
       setPosts((current) => (append ? [...current, ...nextPosts] : nextPosts));
       setFeedPage(feed.page || page);
-      setFeedHasMore(nextPosts.length >= (feed.page_size || FEED_PAGE_SIZE));
+      setFeedHasMore(
+        feed.has_more ?? nextPosts.length >= (feed.page_size || FEED_PAGE_SIZE),
+      );
     } catch (err) {
       setError(err.message);
     } finally {
       setFeedLoading(false);
     }
+  }
+
+  function loadMoreFeed() {
+    loadFeedPage(feedPage() + 1, true);
   }
 
   async function loadThread(postId) {
@@ -643,7 +673,7 @@ export default function App() {
       setNotice(
         wasAnonymous
           ? created?.approval_status === "approved"
-            ? "Anonymous post published. It cannot be edited or deleted, and replies will not send notifications."
+            ? "Anonymous post published."
             : "Anonymous post submitted for approval"
           : "Post published",
       );
@@ -759,17 +789,36 @@ export default function App() {
     setShowMobileAccountMenu(false);
   }
 
-  function closeManageAccount() {
-    setCurrentView("home");
+  async function openAdminView() {
+    if (currentView() === "admin") {
+      await returnToLanding();
+      return;
+    }
+    setCurrentView("admin");
+    setThread(null);
     setShowNotifications(false);
     setShowMobileAccountMenu(false);
+    try {
+      await refreshAdminData();
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
-  function returnToLanding() {
+  async function closeManageAccount() {
+    await returnToLanding();
+  }
+
+  async function returnToLanding() {
     setCurrentView("home");
     closeThread();
     setShowNotifications(false);
     setShowMobileAccountMenu(false);
+    try {
+      await refreshData();
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   async function openNotifications() {
@@ -780,12 +829,19 @@ export default function App() {
     notificationToggleInFlight = true;
     try {
       const freshNotifications = await refreshNotifications();
-      await markNotificationsRead(
-        freshNotifications
-          .filter((item) => item.source === "standard" && !item.read_at)
-          .map((item) => item.id),
-      );
-      await refreshNotifications();
+      const unreadIds = freshNotifications
+        .filter((item) => item.source === "standard" && !item.read_at)
+        .map((item) => item.id);
+      await markNotificationsRead(unreadIds);
+      if (unreadIds.length) {
+        const readAt = Math.floor(Date.now() / 1000);
+        setNotifications((current) =>
+          current.map((item) =>
+            unreadIds.includes(item.id) ? { ...item, read_at: readAt } : item,
+          ),
+        );
+        setUnreadCount(0);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -802,7 +858,7 @@ export default function App() {
       await api.deleteOwnAccount({
         current_password: currentPassword,
       });
-      await signOut();
+      await clearSessionState();
     } catch (err) {
       setError(err.message);
     }
@@ -812,6 +868,7 @@ export default function App() {
     try {
       await action();
       await refreshData();
+      if (currentView() === "admin") await refreshAdminData();
     } catch (err) {
       setError(err.message);
     }
@@ -836,7 +893,9 @@ export default function App() {
   }
 
   function confirmPostDelete() {
-    return window.confirm("Permanently delete this post? This cannot be undone.");
+    return window.confirm(
+      "Permanently delete this post? This cannot be undone.",
+    );
   }
 
   function adminEventLabel(item) {
@@ -865,6 +924,7 @@ export default function App() {
       const result = await api.resetPassword(user.id);
       window.alert(`Temporary password: ${result.temporary_password}`);
       await refreshData();
+      if (currentView() === "admin") await refreshAdminData();
     } catch (err) {
       setError(err.message);
     }
@@ -947,7 +1007,6 @@ export default function App() {
       }
       setEventForm(emptyEventForm);
       setAdminModal(null);
-      await refreshLanding();
     });
   }
 
@@ -973,7 +1032,6 @@ export default function App() {
       setStudyTopicForm(emptyStudyTopicForm);
       setAdminModal(null);
       setUpcomingStudyTopics([]);
-      await refreshLanding();
     });
   }
 
@@ -1002,7 +1060,8 @@ export default function App() {
                   "study-topic-item": true,
                   "landing-link-item": !!topic().hyperlink,
                   "with-upcoming-study-topics":
-                    showUpcomingStudyTopics() && upcomingStudyTopics().length > 0,
+                    showUpcomingStudyTopics() &&
+                    upcomingStudyTopics().length > 0,
                 }}
                 href={topic().hyperlink || undefined}
                 target={topic().hyperlink ? "_blank" : undefined}
@@ -1095,6 +1154,16 @@ export default function App() {
           </Show>
         </section>
       </section>
+    );
+  }
+
+  function SiteDisclaimer() {
+    return (
+      <footer class="site-disclaimer">
+        This website is not an official, Church-sponsored product. If there are
+        problems, contact a member of the quorum presidency. EQ President:
+        Tanner Davies, <a href="tel:+13854824359">+1 (385) 482-4359</a>
+      </footer>
     );
   }
 
@@ -1379,7 +1448,10 @@ export default function App() {
                         <ArrowRightIcon />
                       </button>
                       <Show when={(post.reply_count || 0) > 0}>
-                        <span class="reply-count" aria-label={`${post.reply_count} replies`}>
+                        <span
+                          class="reply-count"
+                          aria-label={`${post.reply_count} replies`}
+                        >
                           <CommentIcon />
                           <span>{post.reply_count}</span>
                         </span>
@@ -1422,9 +1494,17 @@ export default function App() {
               <p class="muted">No posts yet</p>
             </Show>
           </div>
-          <div class="feed-sentinel" ref={feedSentinel}>
+          <div class="feed-sentinel">
             <Show when={feedLoading()}>
               <span class="muted">Loading posts</span>
+            </Show>
+            <Show when={!feedLoading() && feedHasMore()}>
+              <button
+                class="ghost-button feed-load-more"
+                onClick={loadMoreFeed}
+              >
+                Load more
+              </button>
             </Show>
           </div>
         </section>
@@ -1508,7 +1588,9 @@ export default function App() {
                                 reply.created_at * 1000,
                               ).toISOString()}
                             >
-                              {new Date(reply.created_at * 1000).toLocaleString()}
+                              {new Date(
+                                reply.created_at * 1000,
+                              ).toLocaleString()}
                             </time>
                           </div>
                           <p class="post-body">{reply.body}</p>
@@ -1550,7 +1632,10 @@ export default function App() {
                   onInput={(event) => setReplyBody(event.currentTarget.value)}
                 />
                 <div class="post-actions wrap thread-form-actions">
-                  <button class="primary-button icon-label-button" type="submit">
+                  <button
+                    class="primary-button icon-label-button"
+                    type="submit"
+                  >
                     <ReplyIcon />
                     <span>Reply</span>
                   </button>
@@ -1930,6 +2015,10 @@ export default function App() {
                   the quorum? Share a challenge you're going through, a question
                   you have, or a spiritual thought.
                 </span>
+                <p class="muted survey-note">
+                  Your response to this question will be made visible to members
+                  of the quorum
+                </p>
                 <Show
                   when={canCreateNamedSurveyPost()}
                   fallback={
@@ -2455,35 +2544,18 @@ export default function App() {
   }
 
   createEffect(() => {
-    if (
-      currentView() === "account" ||
-      currentView() === "admin" ||
-      !canReadFeed() ||
-      !feedHasMore() ||
-      !feedSentinel
-    )
-      return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const [entry] = entries;
-        if (entry.isIntersecting && !feedLoading() && feedHasMore()) {
-          loadFeedPage(feedPage() + 1, true);
-        }
-      },
-      { rootMargin: "240px" },
-    );
-    observer.observe(feedSentinel);
-    onCleanup(() => observer.disconnect());
-  });
-
-  createEffect(() => {
     if (!canCreateNamedSurveyPost() && surveyForm().anonymous !== true) {
       setSurveyForm({ ...surveyForm(), anonymous: true });
     }
   });
 
   createEffect(() => {
-    if (!thread() || !focusReplyOnOpen() || session()?.account_status !== "active") return;
+    if (
+      !thread() ||
+      !focusReplyOnOpen() ||
+      session()?.account_status !== "active"
+    )
+      return;
     window.setTimeout(() => {
       replyTextarea?.focus();
       replyTextarea?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -2611,17 +2683,7 @@ export default function App() {
                 </div>
                 <div class="desktop-account-actions">
                   <Show when={session()?.is_admin}>
-                    <button
-                      class="ghost-button"
-                      onClick={() => {
-                        setCurrentView(
-                          currentView() === "admin" ? "home" : "admin",
-                        );
-                        setThread(null);
-                        setShowNotifications(false);
-                        setShowMobileAccountMenu(false);
-                      }}
-                    >
+                    <button class="ghost-button" onClick={openAdminView}>
                       Admin
                     </button>
                   </Show>
@@ -2650,17 +2712,7 @@ export default function App() {
                   <Show when={showMobileAccountMenu()}>
                     <div class="mobile-account-menu-panel">
                       <Show when={session()?.is_admin}>
-                        <button
-                          class="ghost-button"
-                          onClick={() => {
-                            setCurrentView(
-                              currentView() === "admin" ? "home" : "admin",
-                            );
-                            setThread(null);
-                            setShowNotifications(false);
-                            setShowMobileAccountMenu(false);
-                          }}
-                        >
+                        <button class="ghost-button" onClick={openAdminView}>
                           Admin
                         </button>
                       </Show>
@@ -2829,6 +2881,7 @@ export default function App() {
           <Show when={!session() || sessionKind() !== "full"}>
             <SurveyModal />
           </Show>
+          <SiteDisclaimer />
         </main>
       </Show>
     </div>

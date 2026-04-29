@@ -45,10 +45,21 @@ async function request(method, path, body) {
 }
 
 let refreshPromise = null;
+let csrfPromise = null;
+
+function ensureCsrfToken() {
+  if (getCookie("xsrf-token")) return Promise.resolve();
+  if (!csrfPromise) {
+    csrfPromise = request("GET", "/api/auth/csrf-token").finally(() => {
+      csrfPromise = null;
+    });
+  }
+  return csrfPromise;
+}
 
 function refreshTokens() {
   if (!refreshPromise) {
-    refreshPromise = request("GET", "/api/auth/csrf-token")
+    refreshPromise = ensureCsrfToken()
       .then(() => request("POST", "/api/auth/refresh", {}))
       .finally(() => {
         refreshPromise = null;
@@ -68,7 +79,7 @@ async function authenticatedRequest(method, path, body) {
 }
 
 export const api = {
-  ensureCsrf: () => request("GET", "/api/auth/csrf-token"),
+  ensureCsrf: () => ensureCsrfToken(),
   landing: () => request("GET", "/api/public/landing"),
   listUpcomingStudyTopics: () => request("GET", "/api/public/study-topics/upcoming"),
   session: () => authenticatedRequest("GET", "/api/auth/session"),
@@ -78,7 +89,7 @@ export const api = {
   logout: () => request("POST", "/api/auth/logout", {}),
   changePassword: (payload) => authenticatedRequest("POST", "/api/auth/change-password", payload),
   deleteOwnAccount: (payload) => authenticatedRequest("DELETE", "/api/auth/delete-account", payload),
-  listPosts: (page = 1, pageSize = 20) =>
+  listPosts: (page = 1, pageSize = 10) =>
     authenticatedRequest("GET", `/api/feed/posts?page=${page}&page_size=${pageSize}`),
   getThread: (postId) => authenticatedRequest("GET", `/api/feed/posts/${postId}`),
   createPost: (payload, anonymous = false) =>

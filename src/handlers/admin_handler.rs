@@ -145,7 +145,7 @@ pub async fn delete_event(
     AdminService::new(&state.db_pool)
         .delete_event(auth_user.user_id, path.into_inner())
         .await?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
+    Ok(HttpResponse::NoContent().finish())
 }
 
 pub async fn list_study_topics(
@@ -209,7 +209,7 @@ pub async fn delete_study_topic(
     AdminService::new(&state.db_pool)
         .delete_study_topic(auth_user.user_id, path.into_inner())
         .await?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
+    Ok(HttpResponse::NoContent().finish())
 }
 
 pub async fn list_users(
@@ -235,7 +235,7 @@ pub async fn approve_user(
     AdminService::new(&state.db_pool)
         .approve_user(auth_user.user_id, path.into_inner())
         .await?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
+    Ok(HttpResponse::NoContent().finish())
 }
 
 pub async fn set_admin(
@@ -247,7 +247,7 @@ pub async fn set_admin(
     AdminService::new(&state.db_pool)
         .set_admin(auth_user.user_id, path.into_inner(), body.is_admin)
         .await?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
+    Ok(HttpResponse::NoContent().finish())
 }
 
 pub async fn set_user_status(
@@ -259,7 +259,7 @@ pub async fn set_user_status(
     AdminService::new(&state.db_pool)
         .set_user_status(auth_user.user_id, path.into_inner(), body.status.clone())
         .await?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
+    Ok(HttpResponse::NoContent().finish())
 }
 
 pub async fn reset_password(
@@ -283,7 +283,7 @@ pub async fn delete_user(
     AdminService::new(&state.db_pool)
         .delete_user(auth_user.user_id, path.into_inner())
         .await?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
+    Ok(HttpResponse::NoContent().finish())
 }
 
 pub async fn delete_content(
@@ -295,5 +295,5 @@ pub async fn delete_content(
     AdminService::new(&state.db_pool)
         .delete_content(auth_user.user_id, kind, id)
         .await?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
+    Ok(HttpResponse::NoContent().finish())
 }

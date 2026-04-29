@@ -120,8 +120,7 @@ impl Default for RateLimiters {
     }
 }
 
-pub fn configure(cfg: &mut ServiceConfig) {
-    let limiters = RateLimiters::default();
+pub fn configure_with_limiters(cfg: &mut ServiceConfig, limiters: RateLimiters) {
     cfg.service(
         scope("/api")
             .service(

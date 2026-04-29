@@ -45,7 +45,7 @@ pub async fn mark_notifications_read(
     NotificationService::new(&state.db_pool)
         .mark_notifications_read(auth_user.user_id, body.ids.clone())
         .await?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
+    Ok(HttpResponse::NoContent().finish())
 }
 
 pub async fn clear_notifications(
@@ -55,5 +55,5 @@ pub async fn clear_notifications(
     NotificationService::new(&state.db_pool)
         .clear_notifications(auth_user.user_id)
         .await?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
+    Ok(HttpResponse::NoContent().finish())
 }

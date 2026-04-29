@@ -11,7 +11,7 @@ use crate::AppState;
 use crate::auth;
 use crate::configure_app;
 use crate::db;
-use crate::models::post::{POST_APPROVED, POST_PENDING_APPROVAL, Post};
+use crate::models::post::{NewPost, POST_APPROVED, POST_PENDING_APPROVAL, Post};
 use crate::models::survey_response::{NewSurveyResponse, SurveyResponse};
 use crate::models::user::{
     ACCOUNT_ACTIVE, ACCOUNT_LOCKED, ACCOUNT_PENDING, ACCOUNT_SUSPENDED, NewUser, User,
@@ -119,6 +119,29 @@ fn post_row(state: &web::Data<AppState>, post_id: &str) -> Post {
         .select(Post::as_select())
         .first::<Post>(&mut conn)
         .expect("load post")
+}
+
+fn seed_post(
+    state: &web::Data<AppState>,
+    user: &SeededUser,
+    body: &str,
+    created_at: i64,
+) -> String {
+    let id = Uuid::now_v7().to_string();
+    let mut conn = state.db_pool.get().expect("db conn");
+    diesel::insert_into(posts::table)
+        .values(NewPost {
+            id: &id,
+            author_user_id: Some(&user.id),
+            is_anonymous: false,
+            approval_status: POST_APPROVED,
+            body,
+            created_at,
+            updated_at: created_at,
+        })
+        .execute(&mut conn)
+        .expect("insert post");
+    id
 }
 
 fn survey_response_row(state: &web::Data<AppState>, response_id: &str) -> SurveyResponse {
@@ -832,6 +855,57 @@ async fn unified_post_endpoint_creates_named_posts_by_default_and_explicit_false
         explicit_body["author_user_id"].as_str(),
         Some(user.id.as_str())
     );
+}
+
+#[actix_web::test]
+async fn feed_list_returns_has_more_for_paginated_posts() {
+    let state = test_state();
+    let user = seed_user(
+        &state,
+        "feed-pagination@example.com",
+        false,
+        ACCOUNT_ACTIVE,
+        false,
+    );
+    let app = test::init_service(configure_app(state.clone())).await;
+
+    let now = db::now_ts();
+    seed_post(&state, &user, "Oldest post", now);
+    seed_post(&state, &user, "Middle post", now + 1);
+    seed_post(&state, &user, "Newest post", now + 2);
+
+    let first_page = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/feed/posts?page=1&page_size=2")
+            .cookie(access_cookie(&user))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(first_page.status(), StatusCode::OK);
+    let first_body: Value = test::read_body_json(first_page).await;
+    assert_eq!(first_body["posts"].as_array().unwrap().len(), 2);
+    assert_eq!(first_body["posts"][0]["body"], "Newest post");
+    assert_eq!(first_body["posts"][1]["body"], "Middle post");
+    assert_eq!(first_body["page"], 1);
+    assert_eq!(first_body["page_size"], 2);
+    assert_eq!(first_body["has_more"], true);
+
+    let second_page = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/feed/posts?page=2&page_size=2")
+            .cookie(access_cookie(&user))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(second_page.status(), StatusCode::OK);
+    let second_body: Value = test::read_body_json(second_page).await;
+    assert_eq!(second_body["posts"].as_array().unwrap().len(), 1);
+    assert_eq!(second_body["posts"][0]["body"], "Oldest post");
+    assert_eq!(second_body["page"], 2);
+    assert_eq!(second_body["page_size"], 2);
+    assert_eq!(second_body["has_more"], false);
 }
 
 #[actix_web::test]

@@ -37,14 +37,18 @@ impl FeedService {
         account_status: &str,
         page: i64,
         page_size: i64,
-    ) -> Result<(Vec<(Post, Option<String>, i64)>, i64, i64), ServiceError> {
+    ) -> Result<(Vec<(Post, Option<String>, i64)>, i64, i64, bool), ServiceError> {
         ensure_token_allows_feed_read(account_status)?;
         let user = self.load_user_and_ensure_read(user_id).await?;
         drop(user);
         let page_size = page_size.clamp(1, 100);
         let page = page.max(1);
         let pool = self.db_pool.clone();
-        let rows = block_dao(move || FeedDao::new(&pool).list_posts(page, page_size)).await?;
+        let mut rows =
+            block_dao(move || FeedDao::new(&pool).list_posts(page, page_size, page_size + 1))
+                .await?;
+        let has_more = rows.len() > page_size as usize;
+        rows.truncate(page_size as usize);
         let author_ids = rows
             .iter()
             .filter_map(|post| post.author_user_id.clone())
@@ -67,7 +71,7 @@ impl FeedService {
                 (post, author_name, reply_count)
             })
             .collect();
-        Ok((posts, page, page_size))
+        Ok((posts, page, page_size, has_more))
     }
 
     pub async fn get_post_thread(

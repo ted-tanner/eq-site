@@ -97,7 +97,7 @@ pub async fn list_posts(
     auth_user: AuthenticatedUser,
     query: web::Query<PagingQuery>,
 ) -> Result<HttpResponse, HandlerError> {
-    let (posts, page, page_size) = FeedService::new(&state.db_pool)
+    let (posts, page, page_size, has_more) = FeedService::new(&state.db_pool)
         .list_posts(
             auth_user.user_id,
             &auth_user.account_status,
@@ -112,7 +112,8 @@ pub async fn list_posts(
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "posts": response,
         "page": page,
-        "page_size": page_size
+        "page_size": page_size,
+        "has_more": has_more
     })))
 }
 
@@ -231,7 +232,7 @@ pub async fn delete_post(
     FeedService::new(&state.db_pool)
         .delete_post(auth_user.user_id, path.into_inner())
         .await?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
+    Ok(HttpResponse::NoContent().finish())
 }
 
 pub async fn delete_reply(
@@ -242,5 +243,5 @@ pub async fn delete_reply(
     FeedService::new(&state.db_pool)
         .delete_reply(auth_user.user_id, path.into_inner())
         .await?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
+    Ok(HttpResponse::NoContent().finish())
 }

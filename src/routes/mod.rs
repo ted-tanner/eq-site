@@ -2,6 +2,8 @@ pub mod api;
 
 use actix_web::web::ServiceConfig;
 
-pub fn configure(cfg: &mut ServiceConfig) {
-    api::configure(cfg);
+use api::RateLimiters;
+
+pub fn configure_with_limiters(cfg: &mut ServiceConfig, limiters: RateLimiters) {
+    api::configure_with_limiters(cfg, limiters);
 }
