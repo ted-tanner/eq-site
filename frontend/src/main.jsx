@@ -7,7 +7,6 @@ const themeQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
 function applyDeviceTheme() {
   const theme = themeQuery?.matches ? "dark" : "light";
   document.documentElement.dataset.theme = theme;
-  document.documentElement.style.colorScheme = theme;
 }
 
 applyDeviceTheme();

@@ -1,4 +1,6 @@
 :root {
+  color-scheme: light;
+
   --bg: #edf4ee;
   --surface: #ffffff;
   --surface-soft: #f7faf7;
@@ -28,6 +30,8 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
+
   --bg: #050706;
   --surface: #111513;
   --surface-soft: #181f1b;
